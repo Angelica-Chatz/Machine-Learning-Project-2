@@ -41,4 +41,4 @@
   
   n) Principal Component Analysis 
   
-  o) several visualizations (Random Forest Variable Importance plot, Principal Components plot, descriptives plots, etc.) 
+  o) several visualizations (Random Forest Variable Importance plot, Principal Components Scree plot, BiPlot PCA, descriptives plots, etc.) 
