@@ -1,0 +1,410 @@
+---
+output: word_document
+---
+```{r}
+ergasia2 <- read.csv("C:/Users/Angelica/Desktop/Project 2/ergasia2.txt")
+View(ergasia2)
+
+# data exploration
+ergasia2$ID <- NULL
+levels(ergasia2$type) <- c(0,1)
+View(ergasia2)
+
+str(ergasia2)
+
+sapply(ergasia2,function(x) sum(is.na(x)))
+
+library(psych)
+describe(ergasia2)
+
+# multiple hists
+library(reshape2)
+library(ggplot2)
+melt.ergasia2 <- melt(ergasia2)
+head(melt.ergasia2)
+
+ggplot(data = melt.ergasia2, aes(x = value)) +
+  stat_density() +
+  facet_wrap(~variable, scales = "free")
+
+# nearzero var
+library(caret)
+nearZeroVar(ergasia2,saveMetrics = TRUE)
+
+# boxplots
+boxplot(ergasia2[,2:3],main="2-3",col='red')
+boxplot(ergasia2[,4:5],main="4-5",col='red')
+boxplot(ergasia2[,6:7],main="6-7",col='red')
+boxplot(ergasia2[,8:9],main="8-9",col='red')
+boxplot(ergasia2[,10:11],main="10-11",col='red')
+
+#check correlation with Pearson
+library(corrplot)
+
+corrplot(cor(ergasia2[,-c(1)],method = "pearson"), method="num", main='Pearson correlation Test')
+# radius/concave, radius/area, perimeter/area, perimeter/concave, area/concave, compactness/concavity, compactness/concave, concavity/concave
+
+ergasia2$area <- NULL
+
+corrplot(cor(ergasia2[,-c(1)],method = "pearson"), method="num", main='Pearson correlation Test')
+
+sapply(ergasia2[,-1],var)
+ergasia2$perimeter <- NULL # omit 'perimeter' due to uber high variance, compared with the other variables 
+
+#create training-test set with bootstrap
+
+set.seed(977)
+
+ergasia2_sampling_vector <- sample(2,nrow(ergasia2),replace=TRUE,prob=c(0.70,0.30))
+
+ergasia2_train <- ergasia2[ergasia2_sampling_vector==1,]
+
+ergasia2_test <- ergasia2[ergasia2_sampling_vector==2,]
+
+set.seed(2423)
+
+library(e1071)
+breast_radial_tune <- tune(svm,type ~ ., data = ergasia2_train,
+kernel = "radial", ranges = list(cost = c(0.01, 0.1, 1, 10, 100),
+gamma = c(0.01, 0.05, 0.1, 0.5, 1)))
+ 
+breast_radial_tune$best.parameters
+
+breast_radial_tune$best.performance
+
+breast_model <- breast_radial_tune$best.model
+
+test_predictions <- predict(breast_model, ergasia2_test[,2:9])
+
+mean(test_predictions == ergasia2_test[,1])
+
+(confusion_matrix<-table(predicted = test_predictions, actual = ergasia2_test[,1]))
+
+Accuracy<-(confusion_matrix[1,1]+confusion_matrix[2,2])/sum(confusion_matrix)
+paste('Accuracy',Accuracy)
+
+library(pROC)
+test_predictions2<-as.numeric(test_predictions)
+roc1 <- roc(ergasia2_test$type,test_predictions2)
+(auc <- roc1$auc)
+
+plot(roc1,col="orange",main="RBF SVM ROC",legacy.axes=TRUE)
+
+# RANDOM FORESTS
+set.seed(666)
+
+library("randomForest")
+library("e1071")
+library("caret")
+
+rf_ranges <- list(ntree = c(500, 1000, 1500, 2000), mtry = 2:9)
+
+rf_tune <- tune(randomForest, type ~ ., data =ergasia2_train, ranges = rf_ranges)
+
+rf_tune$best.parameters
+
+rf_best <- rf_tune$best.model
+
+rf_best_predictions <- predict(rf_best, ergasia2_test)
+
+varImp(rf_best)
+
+varImpPlot(rf_best,type=2)
+
+mean(rf_best_predictions == ergasia2_test[,1])
+
+(confusion_matrix <- table(predicted = rf_best_predictions, actual = ergasia2_test[,1]))
+
+Accuracy<-(confusion_matrix[1,1]+confusion_matrix[2,2])/sum(confusion_matrix)
+paste('Accuracy',Accuracy)
+
+library(pROC)
+rf_best_predictions2<-as.numeric(rf_best_predictions)
+
+roc2 <- roc(ergasia2_test$type,rf_best_predictions2)
+(auc <- roc2$auc)
+
+plot(roc2,col="purple",main="Random Forests ROC",legacy.axes=TRUE)
+
+
+par(mar=c(0, 0, 0, 0))
+plot(roc1,col="orange",main="RBF SVM vs Random Forests ROC",legacy.axes=TRUE)
+plot(roc2,col="purple",main="Random Forests ROC",xaxt = "n", yaxt = "n",add=TRUE)
+legend("center", ncol=5, c("SVM","RForest"), col = c("orange","purple"), bty = "n")
+
+## PART 2
+
+#dataset to use for clustering
+dataset <- read.csv("C:/Users/Angelica/Desktop/Project 2/ergasia2.txt")
+ 
+#scale data
+str(dataset)
+
+dataset <- dataset[,2:12]
+data_num <- dataset[,2:11]
+data_sc <- scale(data_num) # standardize variables
+
+
+#Method 1 
+
+# k means algorithm
+library(NbClust)
+
+nc<-NbClust(data_sc,min.nc=2,max.nc=8, method="kmeans")
+par(mfrow = c(1, 1))
+barplot(table(nc$Best.n[1,]),xlab="Number of Clusters", ylab="Number of Criteria",
+        main="Number of Clusters Chosen")
+
+
+#predict number of clusters
+wssplot<-function(data,nc=8,seed=1234){
+  wss<-(nrow(data)-1)*sum(apply(data,2,var))
+  for(i in 2:nc){
+    set.seed(seed)
+    wss[i]<-sum(kmeans(data,centers=i)$withinss)
+  }
+  plot(1:nc,wss,type="b",xlab="NumberofClusters",
+       ylab="Withingroupssumofsquares")
+}
+
+wssplot(data_sc)
+
+
+#suggests a 2 cluster solution
+
+set.seed(333)
+fit.kmeans<-kmeans(data_sc,2,nstart=50)
+fit.kmeans
+(cm_kmeans<-  table(type=dataset$type,cluster=fit.kmeans$cluster))
+accuracy <- round(((cm_kmeans[1,2]+cm_kmeans[2,1])/(cm_kmeans[1,2]+cm_kmeans[2,1]+cm_kmeans[1,1]+
+                                                      cm_kmeans[2,2])),2)
+paste("Accuracy:",accuracy)
+
+#determine variable means for each cluster in the original metric.
+
+aggregate(dataset[-1], by=list(cluster=fit.kmeans$cluster), mean)
+
+
+#Method 2 
+
+#Hierarchical clustering
+
+fit.hc<-hclust(dist(data_sc),method="ward.D")
+hc_sc<-cutree(fit.hc, k=2:4)
+
+#silhouette values to choose cluster number
+
+library(cluster)
+plot(silhouette(hc_sc[,1], dist(data_sc))) #0.39
+plot(silhouette(hc_sc[,2], dist(data_sc))) #0.24
+plot(silhouette(hc_sc[,3], dist(data_sc))) #0.31
+
+
+fit.hcluster<-hclust(dist(data_num),method="ward.D")
+hc_2<-cutree(fit.hcluster, k=2:4)
+plot(silhouette(hc_2[,1], dist(data_num))) #0.74
+plot(silhouette(hc_2[,2], dist(data_num))) #0.61
+plot(silhouette(hc_2[,3], dist(data_num))) #0.61
+
+(hier_cl<-table(type=dataset$type,cluster=hc_2[,1]))
+accur_hc<-round(((hier_cl[1,2]+hier_cl[2,1])/(hier_cl[1,2]+hier_cl[2,1]+hier_cl[1,1]+hier_cl[2,2])),2)
+
+paste("Accuracy:",accur_hc)
+
+aggregate(data_num,by=list(hc_2[,1]),FUN=mean)
+
+library(factoextra)
+
+fviz_dend(fit.hcluster, k=2,rect = TRUE, cex = 0.2, 
+          k_colors = c("orange","red"))
+## PART 3
+
+# PCA
+
+# create PCs 
+ergasia2 <- read.csv("C:/Users/Angelica/Desktop/Project 2/ergasia2.txt")
+
+PCs_out <- prcomp(ergasia2[-c(1,2)], scale = TRUE)
+
+# Choose PCs
+summary(PCs_out)
+
+# PCs plot
+library(factoextra)
+
+fviz_screeplot(PCs_out, ncp=10, choice="eigenvalue")
+
+fviz_pca_var(PCs_out, col.var="contrib") +
+   scale_color_gradient2(low="white", mid="blue", 
+                     high="red", midpoint=50) + theme_minimal()
+
+# new data with PC1, PC2, PC3, type
+new_data_sample <- data.frame(PCs_out$x[,c(1:3)])
+new_data <- cbind(ergasia2$type,new_data_sample)
+colnames(new_data)[1] <- "type"
+
+## PART 1 WITH PCA
+
+#create training-test set
+library(caret)
+set.seed(977)
+
+new_data_sampling_vector <- sample(2,nrow(new_data),replace=TRUE,prob=c(0.70,0.30))
+
+new_data_train <- new_data[new_data_sampling_vector==1,]
+
+new_data_test <- new_data[new_data_sampling_vector==2,]
+
+set.seed(2423)
+
+library(e1071)
+breast_radial_tune_pc <- tune(svm,type ~ ., data = new_data_train,
+                           kernel = "radial", ranges = list(cost = c(0.01, 0.1, 1, 10, 100),
+                                                            gamma = c(0.01, 0.05, 0.1, 0.5, 1)))
+
+breast_radial_tune_pc$best.parameters
+
+breast_radial_tune_pc$best.performance
+
+breast_model_pc <- breast_radial_tune_pc$best.model
+
+test_predictions_pc <- predict(breast_model_pc, new_data_test[,2:4])
+
+mean(test_predictions_pc == new_data_test[,1])
+
+(confusion_matrix_pc<-table(predicted = test_predictions_pc, actual = new_data_test[,1]))
+
+Accuracy<-(confusion_matrix_pc[1,1]+confusion_matrix_pc[2,2])/sum(confusion_matrix_pc)
+paste('Accuracy',Accuracy)
+
+library(pROC)
+test_predictions2_pc<-as.numeric(test_predictions_pc)
+roc1 <- roc(new_data_test$type,test_predictions2_pc)
+(auc <- roc1$auc)
+
+plot(roc1,col="orange",main="RBF SVM ROC",legacy.axes=TRUE)
+
+# RANDOM FORESTS
+set.seed(666)
+
+library("randomForest")
+library("e1071")
+library("caret")
+
+rf_ranges <- list(ntree = c(500, 1000, 1500, 2000), mtry = 2:3)
+
+rf_tune_pc <- tune(randomForest, type ~ ., data =new_data_train, ranges = rf_ranges)
+
+rf_tune_pc$best.parameters
+
+rf_best_pc <- rf_tune_pc$best.model
+
+rf_best_predictions_pc <- predict(rf_best_pc, new_data_test)
+
+varImp(rf_best_pc)
+
+varImpPlot(rf_best_pc,type=2)
+
+mean(rf_best_predictions_pc == new_data_test[,1])
+
+(confusion_matrix_pc <- table(predicted = rf_best_predictions_pc, actual = new_data_test[,1]))
+
+Accuracy<-(confusion_matrix_pc[1,1]+confusion_matrix_pc[2,2])/sum(confusion_matrix_pc)
+paste('Accuracy',Accuracy)
+
+library(pROC)
+rf_best_predictions2_pc<-as.numeric(rf_best_predictions_pc)
+
+roc2 <- roc(new_data_test$type,rf_best_predictions2_pc)
+(auc <- roc2$auc)
+
+plot(roc2,col="purple",main="Random Forests ROC",legacy.axes=TRUE)
+
+
+par(mar=c(0, 0, 0, 0))
+plot(roc1,col="orange",main="RBF SVM ROC",legacy.axes=TRUE)
+plot(roc2,col="purple",main="Random Forests ROC",xaxt = "n", yaxt = "n",add=TRUE)
+legend("center", ncol=5, c("SVM","RForest"), col = c("orange","purple"), bty = "n")
+
+## PART 2 WITH PCA
+
+#scale data
+
+data_num<-new_data[,2:4]
+data_sc_pc<-scale(data_num) # standardize variables
+
+
+#Method 1 
+
+# k means algorithm
+library(NbClust)
+
+nc_pc<-NbClust(data_sc_pc,min.nc=2,max.nc=8, method="kmeans")
+par(mfrow = c(1, 1))
+barplot(table(nc_pc$Best.n[1,]),xlab="Number of Clusters", ylab="Number of Criteria",
+        main="Number of Clusters Chosen")
+
+
+#predict number of clusters
+wssplot<-function(data,nc=8,seed=1234){
+  wss<-(nrow(data)-1)*sum(apply(data,2,var))
+  for(i in 2:nc){
+    set.seed(seed)
+    wss[i]<-sum(kmeans(data,centers=i)$withinss)
+  }
+  plot(1:nc,wss,type="b",xlab="NumberofClusters",
+       ylab="Withingroupssumofsquares")
+}
+
+wssplot(data_sc_pc)
+
+
+#suggests a 2 cluster solution
+
+set.seed(333)
+fit.kmeans_pc <- kmeans(data_sc_pc,2,nstart=50)
+
+(cm_kmeans_pc <-  table(type=new_data$type,cluster=fit.kmeans_pc$cluster))
+accuracy_pc <- round(((cm_kmeans_pc[1,2]+cm_kmeans_pc[2,1])/(cm_kmeans_pc[1,2]+cm_kmeans_pc[2,1]+
+                                                            cm_kmeans_pc[1,1]+cm_kmeans_pc[2,2])),2)
+paste("Accuracy:",accuracy_pc) # slight improvement
+
+#determine variable means for each cluster in the original metric.
+
+aggregate(new_data[-1], by=list(cluster=fit.kmeans_pc$cluster), mean)
+
+
+#Method 2 
+
+#Hierarchical clustering
+
+fit.hc_pc<-hclust(dist(data_sc_pc),method="ward.D")
+hc_sc_pc<-cutree(fit.hc_pc, k=2:4)
+
+#silhouette values to choose cluster number
+
+library(cluster)
+plot(silhouette(hc_sc_pc[,1], dist(data_sc_pc))) #0.28
+plot(silhouette(hc_sc_pc[,2], dist(data_sc_pc))) #0.46
+plot(silhouette(hc_sc_pc[,3], dist(data_sc_pc))) #0.40
+
+
+fit.hc_pcluster_pc<-hclust(dist(data_num),method="ward.D")
+hc_2_pc<-cutree(fit.hc_pcluster_pc, k=2:4)
+plot(silhouette(hc_2_pc[,1], dist(data_num))) #0.46
+plot(silhouette(hc_2_pc[,2], dist(data_num))) #0.40
+plot(silhouette(hc_2_pc[,3], dist(data_num))) #0.35
+
+(cm_hier_pc<-table(type=new_data$type,cluster=hc_2_pc[,1]))
+accur_hc_pc<-round(((cm_hier_pc[1,2]+cm_hier_pc[2,1])/(cm_hier_pc[1,2]+cm_hier_pc[2,1]+
+                                                      cm_hier_pc[1,1]+cm_hier_pc[2,2])),2)
+
+paste("Accuracy:",accur_hc_pc) #slight improvement
+
+aggregate(data_num,by=list(hc_2_pc[,1]),FUN=mean)
+
+library(factoextra)
+
+fviz_dend(fit.hc_pcluster_pc, k=2,rect = TRUE, cex = 0.2, 
+          k_colors = c("orange","red"))
+```
