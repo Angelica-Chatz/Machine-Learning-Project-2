@@ -1,8 +1,8 @@
 ## Machine-Learning-Project-2
 # Assignment using: 
 - Windows 10
-- R Studio
-- R 3.3
+- R Studio 0.99
+- R 3.2.3
 
 # Tasks:
 - Breast Cancer patients dataset
